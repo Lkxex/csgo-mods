@@ -3,86 +3,174 @@ name: Compile SourceMod Plugins
 on:
   push:
     paths:
-      - 'addons/sourcemod/scripting/**.sp'
-      - 'addons/sourcemod/scripting/**.inc'
-  workflow_dispatch: # Manuel tetikleme butonu
+      - 'addons/sourcemod/scripting/**/*.sp'
+      - 'addons/sourcemod/scripting/**/*.inc'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   compile:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Download SourceMod (Linux)
+      - name: Download SourceMod compiler
+        shell: bash
         run: |
-          # SourceMod 1.12 latest stable indir
-          SM_URL=$(curl -s "https://sm.alliedmods.net/smdrop/1.12/" | grep -oP 'sourcemod-[0-9.]+-git[0-9]+-linux\.tar\.gz' | tail -1)
-          echo "Indiriliyor: https://sm.alliedmods.net/smdrop/1.12/$SM_URL"
-          wget -q "https://sm.alliedmods.net/smdrop/1.12/$SM_URL" -O sm.tar.gz || \
-          wget -q "https://sm.alliedmods.net/smdrop/1.12/sourcemod-1.12.0.7282-git7282-linux.tar.gz" -O sm.tar.gz
+          set -e
+
+          echo "Downloading SourceMod 1.12 compiler..."
+
+          BASE_URL="https://sm.alliedmods.net/smdrop/1.12"
+
+          SM_URL=$(curl -fsSL "$BASE_URL/" \
+            | grep -oE 'sourcemod-[0-9.]+-git[0-9]+-linux\.tar\.gz' \
+            | sort -V \
+            | tail -n 1)
+
+          if [ -z "$SM_URL" ]; then
+            echo "ERROR: Could not find SourceMod package."
+            exit 1
+          fi
+
+          echo "Package: $SM_URL"
+
+          curl -fL "$BASE_URL/$SM_URL" -o sm.tar.gz
+
           mkdir -p sm_linux
           tar -xzf sm.tar.gz -C sm_linux
-          chmod +x sm_linux/addons/sourcemod/scripting/spcomp
-          echo "spcomp versiyonu:"
-          sm_linux/addons/sourcemod/scripting/spcomp --version || true
 
-      - name: Compile custom plugins
+          SPCOMP="sm_linux/addons/sourcemod/scripting/spcomp"
+
+          if [ ! -f "$SPCOMP" ]; then
+            echo "ERROR: spcomp not found."
+            exit 1
+          fi
+
+          chmod +x "$SPCOMP"
+
+          echo "SourceMod compiler:"
+          "$SPCOMP" --version || true
+
+      - name: Compile SourcePawn plugins
+        shell: bash
         run: |
+          set -u
+
           SPCOMP="sm_linux/addons/sourcemod/scripting/spcomp"
           SCRIPTING="addons/sourcemod/scripting"
           PLUGINS="addons/sourcemod/plugins"
           INCLUDE="$SCRIPTING/include"
 
-          # Derlenecek özel pluginler
-          PLUGINS_LIST=(
-            "csgo_admin_selection"
-            "csgo_admin_test"
-            "csgo_agentschooser"
-            "csgo_graffiti"
-            "csgo_pin_mvp"
-            "csgo_voiceagents_enabler"
-            "gloves"
-            "server_help"
-            "weapons"
-          )
-
           mkdir -p "$PLUGINS"
+
           FAIL=0
+          COUNT=0
 
-          for plugin in "${PLUGINS_LIST[@]}"; do
-            SP="$SCRIPTING/${plugin}.sp"
-            SMX="$PLUGINS/${plugin}.smx"
+          echo "=========================================="
+          echo "SourcePawn compilation started"
+          echo "=========================================="
 
-            if [ ! -f "$SP" ]; then
-              echo "⚠️  $plugin.sp bulunamadı, atlanıyor"
-              continue
-            fi
+          while IFS= read -r -d '' SP; do
 
-            echo "🔨 Derleniyor: $plugin.sp"
-            if $SPCOMP "$SP" -o "$SMX" -i "$INCLUDE" -i "$SCRIPTING"; then
-              echo "✅ $plugin.smx başarıyla derlendi"
+            NAME="$(basename "$SP" .sp)"
+            SMX="$PLUGINS/${NAME}.smx"
+
+            echo ""
+            echo "------------------------------------------"
+            echo "Compiling: $SP"
+            echo "Output:    $SMX"
+            echo "------------------------------------------"
+
+            if "$SPCOMP" \
+              "$SP" \
+              -o "$SMX" \
+              -i "$INCLUDE" \
+              -i "$SCRIPTING"
+            then
+              echo "SUCCESS: $NAME.smx"
+              COUNT=$((COUNT + 1))
             else
-              echo "❌ $plugin.sp derlenemedi!"
+              echo "FAILED: $NAME.sp"
               FAIL=1
             fi
-          done
 
-          exit $FAIL
+          done < <(
+            find "$SCRIPTING" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.sp' \
+              -print0
+          )
+
+          echo ""
+          echo "=========================================="
+          echo "Compilation summary"
+          echo "=========================================="
+          echo "Successfully compiled: $COUNT"
+
+          if [ "$FAIL" -ne 0 ]; then
+            echo "One or more plugins failed to compile."
+            exit 1
+          fi
+
+          echo "All plugins compiled successfully."
+
+      - name: Verify generated SMX files
+        shell: bash
+        run: |
+          set -e
+
+          SCRIPTING="addons/sourcemod/scripting"
+          PLUGINS="addons/sourcemod/plugins"
+
+          echo "Verifying generated plugins..."
+
+          while IFS= read -r -d '' SP; do
+            NAME="$(basename "$SP" .sp)"
+            SMX="$PLUGINS/${NAME}.smx"
+
+            if [ ! -f "$SMX" ]; then
+              echo "ERROR: Missing generated SMX: $SMX"
+              exit 1
+            fi
+
+            if [ ! -s "$SMX" ]; then
+              echo "ERROR: Empty SMX: $SMX"
+              exit 1
+            fi
+
+            echo "OK: $SMX"
+          done < <(
+            find "$SCRIPTING" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.sp' \
+              -print0
+          )
 
       - name: Commit compiled plugins
+        shell: bash
         run: |
+          set -e
+
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
+
           git add addons/sourcemod/plugins/*.smx
-          if git diff --staged --quiet; then
-            echo "Değişiklik yok, commit atlanıyor."
-          else
-            git commit -m "🤖 Auto-compile: $(date '+%Y-%m-%d %H:%M') [skip ci]"
-            git push
+
+          if git diff --cached --quiet; then
+            echo "No SMX changes detected."
+            exit 0
           fi
+
+          git commit \
+            -m "🤖 Auto-compile SourceMod plugins [skip ci]"
+
+          git push
