@@ -21,10 +21,16 @@ jobs:
 
       - name: Download SourceMod (Linux)
         run: |
-          wget -q "https://sm.alliedmods.net/smdrop/1.12/sourcemod-1.12.0.7246-git7246-linux.tar.gz" -O sm.tar.gz
+          # SourceMod 1.12 latest stable indir
+          SM_URL=$(curl -s "https://sm.alliedmods.net/smdrop/1.12/" | grep -oP 'sourcemod-[0-9.]+-git[0-9]+-linux\.tar\.gz' | tail -1)
+          echo "Indiriliyor: https://sm.alliedmods.net/smdrop/1.12/$SM_URL"
+          wget -q "https://sm.alliedmods.net/smdrop/1.12/$SM_URL" -O sm.tar.gz || \
+          wget -q "https://sm.alliedmods.net/smdrop/1.12/sourcemod-1.12.0.7282-git7282-linux.tar.gz" -O sm.tar.gz
           mkdir -p sm_linux
           tar -xzf sm.tar.gz -C sm_linux
           chmod +x sm_linux/addons/sourcemod/scripting/spcomp
+          echo "spcomp versiyonu:"
+          sm_linux/addons/sourcemod/scripting/spcomp --version || true
 
       - name: Compile custom plugins
         run: |
