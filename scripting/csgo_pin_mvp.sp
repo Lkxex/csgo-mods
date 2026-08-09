@@ -1,7 +1,6 @@
 #include <sourcemod>
 #include <sdktools>
 #include <cstrike>
-#include <sdkhooks>
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -15,6 +14,11 @@ bool g_bStatTrakEnabled[MAXPLAYERS + 1] = {false, ...};
 int g_iStatTrakCounts[MAXPLAYERS + 1][64]; // Supports up to 64 music kits dynamically
 float g_flLastMvpTime[MAXPLAYERS + 1] = {0.0, ...};
 Handle g_hMvpTimer[MAXPLAYERS + 1] = {null, ...};
+
+// --- Lifecycle Management Globals ---
+int g_iPendingQueries = 0;
+bool g_bShuttingDown = false;
+Handle g_hShutdownTimer = null;
 
 // --- Verified Music Kit IDs ---
 int g_MusicIDs[] = {
@@ -127,8 +131,26 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_mvp", Command_Mvp);
 	RegAdminCmd("sm_mvptest", Command_MvpTest, ADMFLAG_ROOT, "Test MVP Music Kit");
 	
-	HookEvent("round_mvp", Event_RoundMvp_Pre, EventHookMode_Pre);
+	HookEvent("round_mvp", Event_RoundMvp_Post, EventHookMode_Post);
 	HookEvent("player_spawn", Event_PlayerSpawn);
+}
+
+public void OnPluginEnd()
+{
+	// Graceful shutdown: wait for pending queries
+	TryGracefulShutdown("Plugin unload");
+	
+	if(g_hShutdownTimer != null)
+	{
+		KillTimer(g_hShutdownTimer);
+		g_hShutdownTimer = null;
+	}
+	
+	if(g_db != null)
+	{
+		delete g_db;
+		g_db = null;
+	}
 }
 
 public void SQL_OnConnect(Database db, const char[] error, any data)
@@ -312,59 +334,140 @@ void SaveStatTrakSetting(int client)
 	{
 		char query[512];
 		Format(query, sizeof(query), "REPLACE INTO custom_mvp_stattrak_settings (steamid, enabled) VALUES ('%s', %d)", auth, g_bStatTrakEnabled[client] ? 1 : 0);
-		g_db.Query(SQL_CheckError, query);
+		g_iPendingQueries++;
+		g_db.Query(SQL_OnSettingsSave, query);
 	}
 }
 
 void SaveStatTrakCount(int client, int music_id, int count)
 {
-	if(g_db == null) return;
-	char auth[32];
-	if(GetClientAuthId(client, AuthId_Steam2, auth, sizeof(auth)))
+	if(g_db == null) 
 	{
-		char query[512];
-		Format(query, sizeof(query), "REPLACE INTO custom_mvp_stattrak_counters (steamid, music_id, mvp_count) VALUES ('%s', %d, %d)", auth, music_id, count);
-		g_db.Query(SQL_CheckError, query);
+		LogError("Cannot save StatTrak: Database not connected");
+		return;
+	}
+	
+	char auth[32];
+	if(!GetClientAuthId(client, AuthId_Steam2, auth, sizeof(auth)))
+	{
+		LogError("Cannot save StatTrak: Failed to get AuthId for client %d", client);
+		return;
+	}
+	
+	char query[512];
+	Format(query, sizeof(query), "REPLACE INTO custom_mvp_stattrak_counters (steamid, music_id, mvp_count) VALUES ('%s', %d, %d)", auth, music_id, count);
+	g_iPendingQueries++;
+	g_db.Query(SQL_OnStatTrakSave, query);
+}
+
+public void SQL_OnStatTrakSave(Database db, DBResultSet results, const char[] error, any data)
+{
+	g_iPendingQueries--;
+	
+	if(error[0])
+	{
+		LogError("StatTrak save failed: %s", error);
+	}
+	
+	CheckShutdown();
+}
+
+public void SQL_OnSettingsSave(Database db, DBResultSet results, const char[] error, any data)
+{
+	g_iPendingQueries--;
+	
+	if(error[0])
+	{
+		LogError("StatTrak settings save failed: %s", error);
+	}
+	
+	CheckShutdown();
+}
+
+void CheckShutdown()
+{
+	if(g_bShuttingDown && g_iPendingQueries <= 0)
+	{
+		if(g_hShutdownTimer != null)
+		{
+			KillTimer(g_hShutdownTimer);
+			g_hShutdownTimer = null;
+		}
+		g_bShuttingDown = false;
+		LogMessage("All pending queries completed. Shutdown safe.");
 	}
 }
 
-public Action Event_RoundMvp_Pre(Event event, const char[] name, bool dontBroadcast)
+Action TryGracefulShutdown(const char[] context)
 {
-	int client = GetClientOfUserId(event.GetInt("userid"));
-	if(client > 0 && IsClientInGame(client))
+	if(g_iPendingQueries > 0)
 	{
-		if(g_bStatTrakEnabled[client] && g_iPlayerMusic[client] > 0)
+		LogMessage("%s: Waiting for %d pending queries to complete...", context, g_iPendingQueries);
+		g_bShuttingDown = true;
+		
+		// Wait up to 2.0 seconds for queries to complete
+		g_hShutdownTimer = CreateTimer(2.0, Timer_ForceShutdown, _, TIMER_FLAG_NO_MAPCHANGE);
+		return Plugin_Handled; // Indicate we're handling shutdown gracefully
+	}
+	return Plugin_Continue;
+}
+
+public Action Timer_ForceShutdown(Handle timer)
+{
+	g_hShutdownTimer = null;
+	
+	if(g_iPendingQueries > 0)
+	{
+		LogWarning("Force shutdown: %d queries did not complete in time. Data may be lost.", g_iPendingQueries);
+	}
+	
+	g_bShuttingDown = false;
+	return Plugin_Stop;
+}
+
+public Action Event_RoundMvp_Post(Event event, const char[] name, bool dontBroadcast)
+{
+	int userid = event.GetInt("userid");
+	int client = GetClientOfUserId(userid);
+	
+	if(client <= 0 || !IsClientInGame(client))
+	{
+		LogMessage("round_mvp: Invalid client for userid %d (client index: %d, in-game: %s)", 
+			userid, client, client > 0 ? "yes" : "no");
+		return Plugin_Continue;
+	}
+	
+	if(g_bStatTrakEnabled[client] && g_iPlayerMusic[client] > 0)
+	{
+		// Prevent double counting within same round
+		if(GetGameTime() - g_flLastMvpTime[client] < 2.0)
 		{
-			// Prevent double counting within same round
-			if(GetGameTime() - g_flLastMvpTime[client] < 2.0)
-			{
-				int kitIdx = -1;
-				for(int i = 0; i < sizeof(g_MusicIDs); i++)
-				{
-					if(g_MusicIDs[i] == g_iPlayerMusic[client]) { kitIdx = i; break; }
-				}
-				if(kitIdx != -1) { event.SetInt("musickitmvps", g_iStatTrakCounts[client][kitIdx]); }
-				return Plugin_Continue;
-			}
-			g_flLastMvpTime[client] = GetGameTime();
-			
-			int kitIndex = -1;
+			int kitIdx = -1;
 			for(int i = 0; i < sizeof(g_MusicIDs); i++)
 			{
-				if(g_MusicIDs[i] == g_iPlayerMusic[client])
-				{
-					kitIndex = i;
-					break;
-				}
+				if(g_MusicIDs[i] == g_iPlayerMusic[client]) { kitIdx = i; break; }
 			}
-			
-			if(kitIndex != -1)
+			if(kitIdx != -1) { event.SetInt("musickitmvps", g_iStatTrakCounts[client][kitIdx]); }
+			return Plugin_Continue;
+		}
+		g_flLastMvpTime[client] = GetGameTime();
+		
+		int kitIndex = -1;
+		for(int i = 0; i < sizeof(g_MusicIDs); i++)
+		{
+			if(g_MusicIDs[i] == g_iPlayerMusic[client])
 			{
-				g_iStatTrakCounts[client][kitIndex]++;
-				SaveStatTrakCount(client, g_MusicIDs[kitIndex], g_iStatTrakCounts[client][kitIndex]);
-				
-				event.SetInt("musickitmvps", g_iStatTrakCounts[client][kitIndex]);
+				kitIndex = i;
+				break;
 			}
+		}
+		
+		if(kitIndex != -1)
+		{
+			g_iStatTrakCounts[client][kitIndex]++;
+			SaveStatTrakCount(client, g_MusicIDs[kitIndex], g_iStatTrakCounts[client][kitIndex]);
+			
+			event.SetInt("musickitmvps", g_iStatTrakCounts[client][kitIndex]);
 		}
 	}
 	return Plugin_Continue;
