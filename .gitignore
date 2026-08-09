@@ -1,21 +1,47 @@
-# SQLite veritabanı dosyaları (oyuncu verisi, repoya girmemeli)
-addons/sourcemod/data/sqlite/*.sq3
-addons/sourcemod/data/sqlite/*.db
+```
+# Logs and temp files
+*.log
+*.tmp
+*.swp
 
-# SourceMod runtime logları
-addons/sourcemod/logs/
+# Environment
+.env
+.env.local
+*.env.*
 
-# SourceMod cache (otomatik oluşturulur)
-addons/sourcemod/data/caches/
-
-# SourceMod build artifacts
-*.asm
-
-# Windows
-Thumbs.db
-desktop.ini
-
-# Editor
+# Editors
 .vscode/
-*.suo
-*.user
+.idea/
+
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+target/
+.gradle/
+
+# Build artifacts
+dist/
+build/
+*.pyc
+*.class
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.out
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# System files
+.DS_Store
+Thumbs.db
+```
