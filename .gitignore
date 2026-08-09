@@ -1,3 +1,13 @@
+# SQLite veritabanı dosyaları (oyuncu verisi, repoya girmemeli)
+addons/sourcemod/data/sqlite/*.sq3
+addons/sourcemod/data/sqlite/*.db
+
+# SourceMod runtime logları
+addons/sourcemod/logs/
+
+# SourceMod cache (otomatik oluşturulur)
+addons/sourcemod/data/caches/
+
 # SourceMod build artifacts
 *.asm
 
@@ -5,7 +15,7 @@
 Thumbs.db
 desktop.ini
 
-# Editor artifacts
+# Editor
 .vscode/
 *.suo
 *.user
