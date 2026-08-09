@@ -1,0 +1,33 @@
+"Phrases"
+{
+	"HelpMenuTitle"
+	{
+		"en"		"==== [ SERVER HELP ] ====\n "
+		"tr"		"==== [ SUNUCU YARDIM ] ====\n "
+	}
+	"HelpMenuSubtitle"
+	{
+		"en"		"--- Available Commands ---"
+		"tr"		"--- Mevcut Komutlar ---"
+	}
+	"HelpCommandWS"
+	{
+		"en"		"!ws / !weapons - Weapon Skins"
+		"tr"		"!ws / !weapons - Silah Skinleri"
+	}
+	"HelpCommandGlove"
+	{
+		"en"		"!glove / !eldiven - Gloves Selection"
+		"tr"		"!glove / !eldiven - Eldiven Seçimi"
+	}
+	"HelpCommandAgents"
+	{
+		"en"		"!agents / !ajan - Agents Selection"
+		"tr"		"!agents / !ajan - Ajan Seçimi"
+	}
+	"HelpCommandKnife"
+	{
+		"en"		"!knife / !bicak - Knife Selection"
+		"tr"		"!knife / !bicak - Bıçak Seçimi"
+	}
+}
