@@ -1,0 +1,14 @@
+# Compiled SourceMod plugins
+*.smx
+
+# SourceMod build artifacts
+*.asm
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Editor artifacts
+.vscode/
+*.suo
+*.user
