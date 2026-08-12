@@ -152,10 +152,14 @@ public void OnClientDisconnect(int client)
 	
 	if (!IsFakeClient(client))
 	{
-		if (g_bSingleplayerMode && GetRealClientCount() <= 1)
+		if (g_bSingleplayerMode)
 		{
-			g_SingleplayerHostAccountID = 0;
-			PrintToServer("[Admin Selection] Sunucuda gercek oyuncu kalmadi. Singleplayer modu varsayilan duruma dondu.");
+			int accountID = GetSteamAccountID(client);
+			if (accountID > 0 && accountID == g_SingleplayerHostAccountID)
+			{
+				g_SingleplayerHostAccountID = 0;
+				PrintToServer("[Admin Selection] Host ayrildi. Singleplayer modu varsayilan duruma dondu.");
+			}
 		}
 	}
 }

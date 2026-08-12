@@ -16,6 +16,7 @@ bool g_bStatTrakEnabled[MAXPLAYERS + 1] = {false, ...};
 int g_iStatTrakCounts[MAXPLAYERS + 1][64]; // Supports up to 64 music kits dynamically
 float g_flLastMvpTime[MAXPLAYERS + 1] = {0.0, ...};
 Handle g_hMvpTimer[MAXPLAYERS + 1] = {null, ...};
+bool g_bIsTestingMvp[MAXPLAYERS + 1] = {false, ...};
 
 // --- Verified Music Kit IDs ---
 int g_MusicIDs[] = {
@@ -398,7 +399,7 @@ void SaveStatTrakCount(int client, int music_id, int count)
 public Action Event_RoundMvp_Pre(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	if(client <= 0 || !IsClientInGame(client) || !g_bStatTrakEnabled[client])
+	if(client <= 0 || !IsClientInGame(client) || !g_bStatTrakEnabled[client] || g_bIsTestingMvp[client])
 	{
 		return Plugin_Continue;
 	}
@@ -548,7 +549,10 @@ public Action Command_MvpTest(int client, int args)
 		
 		mvpEvent.SetInt("musickitmvps", fakeCount);
 		mvpEvent.SetInt("nomusic", 0);
+		
+		g_bIsTestingMvp[client] = true;
 		mvpEvent.FireToClient(client);
+		g_bIsTestingMvp[client] = false;
 	}
 	
 	// 3. Fake cs_win_panel_round for funfacts
