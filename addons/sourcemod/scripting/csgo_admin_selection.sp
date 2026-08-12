@@ -12,7 +12,7 @@ Database g_db = null;
 bool g_bTempAdmins[MAXPLAYERS + 1] = {false, ...};
 bool g_bPersistentAdmins[MAXPLAYERS + 1] = {false, ...};
 
-bool g_bSingleplayerMode = false;
+bool g_bSingleplayerMode = true;
 int g_SingleplayerHostAccountID = 0;
 
 public Plugin myinfo = 
@@ -44,9 +44,11 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_adminseckal", Command_AdminSecKal, "Set persistent admin");
 	RegConsoleCmd("sm_adminseckaldir", Command_AdminSecKaldir, "Remove persistent admin");
 	
-	RegConsoleCmd("sm_singleplayer", Command_SingleplayerMod, "Toggle singleplayer mode (Disables all custom admins)");
+	RegConsoleCmd("sm_multiplayer", Command_MultiplayerMod, "Enable custom admin system (Multiplayer mode)");
 	
 	AddCommandListener(Command_BlockAdminMenu, "sm_admin");
+	
+	PrintToServer("[Admin Selection] Sunucu Singleplayer modunda baslatildi. Ozel admin sistemi kapali. !multiplayer ile aktiflestirin.");
 }
 
 public Action Command_BlockAdminMenu(int client, const char[] command, int argc)
@@ -96,9 +98,25 @@ public void OnClientAuthorized(int client, const char[] auth)
 		g_bTempAdmins[client] = false;
 		g_bPersistentAdmins[client] = false;
 		
-		if(g_db != null && !g_bSingleplayerMode)
+		int accountID = GetSteamAccountID(client);
+		
+		if (g_bSingleplayerMode)
 		{
-			int accountID = GetSteamAccountID(client);
+			if (accountID > 0)
+			{
+				if (g_SingleplayerHostAccountID == 0)
+				{
+					g_SingleplayerHostAccountID = accountID;
+				}
+				else if (g_SingleplayerHostAccountID != accountID)
+				{
+					KickClient(client, "Sunucu Singleplayer modundadir. Baska oyuncu katilamaz.");
+					return;
+				}
+			}
+		}
+		else if (g_db != null)
+		{
 			if (accountID > 0)
 			{
 				char query[256];
@@ -136,10 +154,8 @@ public void OnClientDisconnect(int client)
 	{
 		if (g_bSingleplayerMode && GetRealClientCount() <= 1)
 		{
-			g_bSingleplayerMode = false;
 			g_SingleplayerHostAccountID = 0;
-			ServerCommand("sm_reloadadmins");
-			PrintToServer("[Admin Selection] Sunucuda gercek oyuncu kalmadigi icin Singleplayer mod deaktif edildi.");
+			PrintToServer("[Admin Selection] Sunucuda gercek oyuncu kalmadi. Singleplayer modu varsayilan duruma dondu.");
 		}
 	}
 }
@@ -154,11 +170,9 @@ public void OnClientPostAdminCheck(int client)
 
 public bool OnClientConnect(int client, char[] rejectmsg, int maxlen)
 {
-	if (g_bSingleplayerMode && !IsFakeClient(client))
-	{
-		strcopy(rejectmsg, maxlen, "Sunucu Singleplayer modundadir. Baska oyuncu katilamaz.");
-		return false;
-	}
+	// Bağlantı reddetme işlemini OnClientAuthorized içine taşıdık. 
+	// Çünkü OnClientConnect anında oyuncunun SteamID'si henüz belli olmuyor 
+	// ve sunucu sahibi olup olmadığını anlayamıyoruz.
 	return true;
 }
 
@@ -244,23 +258,18 @@ int NormalizeSteamID(const char[] input)
 	
 	if (strlen(temp) == 17 && StrContains(temp, "7656119") == 0)
 	{
-		char upperStr[9];
 		char lowerStr[10];
-		strcopy(upperStr, 9, temp);
 		strcopy(lowerStr, 10, temp[8]);
 		
-		int upper = StringToInt(upperStr);
 		int lower = StringToInt(lowerStr);
-		
-		int base_upper = 76561197;
 		int base_lower = 960265728;
 		
-		if (lower < base_lower) {
+		if (lower < base_lower)
+		{
 			lower += 1000000000;
-			upper -= 1;
 		}
-		int diff_lower = lower - base_lower;
-		return diff_lower;
+		
+		return lower - base_lower;
 	}
 	
 	if (StrContains(temp, "STEAM_") == 0)
@@ -502,14 +511,37 @@ public Action Command_AdminSecKaldir(int client, int args)
 	return Plugin_Handled;
 }
 
-public Action Command_SingleplayerMod(int client, int args)
+public Action Command_MultiplayerMod(int client, int args)
 {
 	if (g_bSingleplayerMode)
 	{
-		if (GetSteamAccountID(client) != g_SingleplayerHostAccountID)
+		if (g_SingleplayerHostAccountID != 0 && GetSteamAccountID(client) != g_SingleplayerHostAccountID)
 		{
 			ReplyToCommand(client, " \x04[Admin]\x01 You do not have permission to use this command.");
 			return Plugin_Handled;
+		}
+		
+		g_bSingleplayerMode = false;
+		g_SingleplayerHostAccountID = 0;
+		ServerCommand("sm_reloadadmins");
+		ReplyToCommand(client, " \x04[Admin]\x01 BAŞARILI!");
+		PrintToChatAll(" \x04[Admin]\x01 Multiplayer Mod AKTIF! Ozel admin sistemi tekrar aktif.");
+		
+		if (g_db != null)
+		{
+			for (int i = 1; i <= MaxClients; i++)
+			{
+				if (IsClientInGame(i) && !IsFakeClient(i) && IsClientAuthorized(i))
+				{
+					int accountID = GetSteamAccountID(i);
+					if (accountID > 0)
+					{
+						char query[256];
+						Format(query, sizeof(query), "SELECT account_id FROM admin_selection_admins WHERE account_id = %d", accountID);
+						g_db.Query(SQL_OnAdminLoad, query, GetClientUserId(i));
+					}
+				}
+			}
 		}
 	}
 	else
@@ -519,10 +551,7 @@ public Action Command_SingleplayerMod(int client, int args)
 			ReplyToCommand(client, " \x04[Admin]\x01 You do not have permission to use this command.");
 			return Plugin_Handled;
 		}
-	}
-	
-	if (!g_bSingleplayerMode)
-	{
+		
 		if (GetRealClientCount() > 1)
 		{
 			ReplyToCommand(client, " \x04[Admin]\x01 Singleplayer moda gecmek icin sunucuda tek gercek oyuncu siz olmalisiniz.");
@@ -532,7 +561,7 @@ public Action Command_SingleplayerMod(int client, int args)
 		g_bSingleplayerMode = true;
 		g_SingleplayerHostAccountID = GetSteamAccountID(client);
 		ReplyToCommand(client, " \x04[Admin]\x01 BAŞARILI!");
-		PrintToChatAll(" \x04[Admin]\x01 Singleplayer Mod AKTIF! Tum admin yetkileri gizlendi, baska oyuncu katilamaz.");
+		PrintToChatAll(" \x04[Admin]\x01 Singleplayer Mod AKTIF! Tum ozel admin yetkileri gizlendi, baska oyuncu katilamaz.");
 		
 		for (int i = 1; i <= MaxClients; i++)
 		{
@@ -548,30 +577,6 @@ public Action Command_SingleplayerMod(int client, int args)
 				if (!IsFakeClient(i))
 				{
 					StripAllAdminFlags(i);
-				}
-			}
-		}
-	}
-	else
-	{
-		g_bSingleplayerMode = false;
-		g_SingleplayerHostAccountID = 0;
-		ServerCommand("sm_reloadadmins");
-		PrintToChatAll(" \x04[Admin]\x01 Singleplayer Mod DEAKTIF! Admin sistemi tekrar aktif.");
-		
-		if (g_db != null)
-		{
-			for (int i = 1; i <= MaxClients; i++)
-			{
-				if (IsClientInGame(i) && !IsFakeClient(i) && IsClientAuthorized(i))
-				{
-					int accountID = GetSteamAccountID(i);
-					if (accountID > 0)
-					{
-						char query[256];
-						Format(query, sizeof(query), "SELECT account_id FROM admin_selection_admins WHERE account_id = %d", accountID);
-						g_db.Query(SQL_OnAdminLoad, query, GetClientUserId(i));
-					}
 				}
 			}
 		}
