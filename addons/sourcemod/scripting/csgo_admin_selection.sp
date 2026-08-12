@@ -552,11 +552,7 @@ public Action Command_MultiplayerMod(int client, int args)
 			return Plugin_Handled;
 		}
 		
-		if (GetRealClientCount() > 1)
-		{
-			ReplyToCommand(client, " \x04[Admin]\x01 Singleplayer moda gecmek icin sunucuda tek gercek oyuncu siz olmalisiniz.");
-			return Plugin_Handled;
-		}
+		// Diğer oyuncular varsa engel olmak yerine direkt atacağız
 		
 		g_bSingleplayerMode = true;
 		g_SingleplayerHostAccountID = GetSteamAccountID(client);
@@ -577,6 +573,10 @@ public Action Command_MultiplayerMod(int client, int args)
 				if (!IsFakeClient(i))
 				{
 					StripAllAdminFlags(i);
+					if (i != client)
+					{
+						KickClient(i, "Sunucu Singleplayer moduna alindi. Baska oyuncular atildi.");
+					}
 				}
 			}
 		}

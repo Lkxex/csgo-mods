@@ -9,6 +9,7 @@
 Database g_db = null;
 int g_iPlayerMusic[MAXPLAYERS + 1] = {0, ...};
 bool g_bDataLoaded[MAXPLAYERS + 1] = {false, ...};
+int g_iPendingDbLoads[MAXPLAYERS + 1] = {0, ...};
 
 // --- StatTrak Variables ---
 bool g_bStatTrakEnabled[MAXPLAYERS + 1] = {false, ...};
@@ -131,6 +132,14 @@ public void OnPluginStart()
 	HookEvent("player_spawn", Event_PlayerSpawn);
 }
 
+public void OnMapStart()
+{
+	for (int i = 1; i <= MaxClients; i++)
+	{
+		g_flLastMvpTime[i] = 0.0;
+	}
+}
+
 public void SQL_OnConnect(Database db, const char[] error, any data)
 {
 	if(db == null)
@@ -171,8 +180,10 @@ public void OnClientAuthorized(int client, const char[] auth)
 	if(!IsFakeClient(client))
 	{
 		g_bDataLoaded[client] = false;
+		g_iPendingDbLoads[client] = 0;
 		g_iPlayerMusic[client] = -1;
 		g_bStatTrakEnabled[client] = false;
+		g_flLastMvpTime[client] = 0.0;
 		for(int i = 0; i < sizeof(g_MusicIDs); i++)
 		{
 			g_iStatTrakCounts[client][i] = 0;
@@ -180,6 +191,8 @@ public void OnClientAuthorized(int client, const char[] auth)
 		
 		if(g_db != null)
 		{
+			g_iPendingDbLoads[client] = 3;
+			
 			char query[256];
 			Format(query, sizeof(query), "SELECT music_id FROM mvp_music_prefs WHERE steamid = '%s'", auth);
 			g_db.Query(SQL_OnClientLoad, query, GetClientUserId(client));
@@ -192,6 +205,23 @@ public void OnClientAuthorized(int client, const char[] auth)
 			Format(query3, sizeof(query3), "SELECT music_id, mvp_count FROM custom_mvp_stattrak_counters WHERE steamid = '%s'", auth);
 			g_db.Query(SQL_OnClientLoadCounters, query3, GetClientUserId(client));
 		}
+		else
+		{
+			g_bDataLoaded[client] = true;
+		}
+	}
+}
+
+void MarkClientDataLoaded(int client)
+{
+	if (--g_iPendingDbLoads[client] <= 0)
+	{
+		g_bDataLoaded[client] = true;
+		
+		if (IsClientInGame(client))
+		{
+			ApplyPlayerSettings(client);
+		}
 	}
 }
 
@@ -203,6 +233,7 @@ public void SQL_OnClientLoad(Database db, DBResultSet results, const char[] erro
 	if(error[0])
 	{
 		LogError("SQL Load Error: %s", error);
+		MarkClientDataLoaded(client);
 		return;
 	}
 	
@@ -210,12 +241,8 @@ public void SQL_OnClientLoad(Database db, DBResultSet results, const char[] erro
 	{
 		g_iPlayerMusic[client] = results.FetchInt(0);
 	}
-	g_bDataLoaded[client] = true;
 	
-	if(IsClientInGame(client))
-	{
-		ApplyPlayerSettings(client);
-	}
+	MarkClientDataLoaded(client);
 }
 
 public void SQL_OnClientLoadSettings(Database db, DBResultSet results, const char[] error, any data)
@@ -226,6 +253,7 @@ public void SQL_OnClientLoadSettings(Database db, DBResultSet results, const cha
 	if(error[0])
 	{
 		LogError("SQL Load Settings Error: %s", error);
+		MarkClientDataLoaded(client);
 		return;
 	}
 	
@@ -233,6 +261,8 @@ public void SQL_OnClientLoadSettings(Database db, DBResultSet results, const cha
 	{
 		g_bStatTrakEnabled[client] = results.FetchInt(0) != 0;
 	}
+	
+	MarkClientDataLoaded(client);
 }
 
 public void SQL_OnClientLoadCounters(Database db, DBResultSet results, const char[] error, any data)
@@ -243,6 +273,7 @@ public void SQL_OnClientLoadCounters(Database db, DBResultSet results, const cha
 	if(error[0])
 	{
 		LogError("SQL Load Counters Error: %s", error);
+		MarkClientDataLoaded(client);
 		return;
 	}
 	
@@ -260,12 +291,48 @@ public void SQL_OnClientLoadCounters(Database db, DBResultSet results, const cha
 			}
 		}
 	}
+	
+	MarkClientDataLoaded(client);
+}
+
+int GetMusicKitIndex(int musicId)
+{
+	for (int i = 0; i < sizeof(g_MusicIDs); i++)
+	{
+		if (g_MusicIDs[i] == musicId)
+		{
+			return i;
+		}
+	}
+	
+	return -1;
+}
+
+int GetClientMusicKitId(int client)
+{
+	if (g_iPlayerMusic[client] > 0)
+	{
+		return g_iPlayerMusic[client];
+	}
+	
+	if (IsClientInGame(client))
+	{
+		int entityMusicId = GetEntProp(client, Prop_Send, "m_unMusicID");
+		if (entityMusicId > 0)
+		{
+			return entityMusicId;
+		}
+	}
+	
+	return g_iPlayerMusic[client];
 }
 
 public void OnClientDisconnect(int client)
 {
 	g_bDataLoaded[client] = false;
+	g_iPendingDbLoads[client] = 0;
 	g_iPlayerMusic[client] = -1;
+	g_flLastMvpTime[client] = 0.0;
 	if (g_hMvpTimer[client] != null)
 	{
 		KillTimer(g_hMvpTimer[client]);
@@ -331,42 +398,34 @@ void SaveStatTrakCount(int client, int music_id, int count)
 public Action Event_RoundMvp_Pre(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	if(client > 0 && IsClientInGame(client))
+	if(client <= 0 || !IsClientInGame(client) || !g_bStatTrakEnabled[client])
 	{
-		if(g_bStatTrakEnabled[client] && g_iPlayerMusic[client] > 0)
-		{
-			// Prevent double counting within same round
-			if(GetGameTime() - g_flLastMvpTime[client] < 2.0)
-			{
-				int kitIdx = -1;
-				for(int i = 0; i < sizeof(g_MusicIDs); i++)
-				{
-					if(g_MusicIDs[i] == g_iPlayerMusic[client]) { kitIdx = i; break; }
-				}
-				if(kitIdx != -1) { event.SetInt("musickitmvps", g_iStatTrakCounts[client][kitIdx]); }
-				return Plugin_Continue;
-			}
-			g_flLastMvpTime[client] = GetGameTime();
-			
-			int kitIndex = -1;
-			for(int i = 0; i < sizeof(g_MusicIDs); i++)
-			{
-				if(g_MusicIDs[i] == g_iPlayerMusic[client])
-				{
-					kitIndex = i;
-					break;
-				}
-			}
-			
-			if(kitIndex != -1)
-			{
-				g_iStatTrakCounts[client][kitIndex]++;
-				SaveStatTrakCount(client, g_MusicIDs[kitIndex], g_iStatTrakCounts[client][kitIndex]);
-				
-				event.SetInt("musickitmvps", g_iStatTrakCounts[client][kitIndex]);
-			}
-		}
+		return Plugin_Continue;
 	}
+	
+	int musicId = GetClientMusicKitId(client);
+	if (musicId <= 0)
+	{
+		return Plugin_Continue;
+	}
+	
+	int kitIndex = GetMusicKitIndex(musicId);
+	if (kitIndex == -1)
+	{
+		return Plugin_Continue;
+	}
+	
+	float gameTime = GetGameTime();
+	bool duplicateEvent = (gameTime - g_flLastMvpTime[client]) < 2.0;
+	
+	if (!duplicateEvent)
+	{
+		g_flLastMvpTime[client] = gameTime;
+		g_iStatTrakCounts[client][kitIndex]++;
+		SaveStatTrakCount(client, g_MusicIDs[kitIndex], g_iStatTrakCounts[client][kitIndex]);
+	}
+	
+	event.SetInt("musickitmvps", g_iStatTrakCounts[client][kitIndex]);
 	return Plugin_Continue;
 }
 
@@ -477,15 +536,13 @@ public Action Command_MvpTest(int client, int args)
 		mvpEvent.SetInt("value", 0);
 		
 		int fakeCount = 0;
-		if(g_bStatTrakEnabled[client] && g_iPlayerMusic[client] > 0)
+		if(g_bStatTrakEnabled[client])
 		{
-			for(int i = 0; i < sizeof(g_MusicIDs); i++)
+			int musicId = GetClientMusicKitId(client);
+			int kitIndex = GetMusicKitIndex(musicId);
+			if (kitIndex != -1)
 			{
-				if(g_MusicIDs[i] == g_iPlayerMusic[client])
-				{
-					fakeCount = g_iStatTrakCounts[client][i];
-					break;
-				}
+				fakeCount = g_iStatTrakCounts[client][kitIndex];
 			}
 		}
 		
