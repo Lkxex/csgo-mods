@@ -369,44 +369,14 @@ void RefreshWeapon(int client, int index, bool defaultKnife = false)
 					}
 				}
 				
-				int clip = -1;
-				int ammo = -1;
-				int offset = -1;
-				int reserve = -1;
-				
 				if (!isKnife)
 				{
-					offset = FindDataMapInfo(client, "m_iAmmo") + (GetEntProp(weapon, Prop_Data, "m_iPrimaryAmmoType") * 4);
-					ammo = GetEntData(client, offset);
-					clip = GetEntProp(weapon, Prop_Send, "m_iClip1");
-					reserve = GetEntProp(weapon, Prop_Send, "m_iPrimaryReserveAmmoCount");
-				}
-				
-				RemovePlayerItem(client, weapon);
-				AcceptEntityInput(weapon, "KillHierarchy");
-				
-				if (!isKnife)
-				{
-					weapon = GivePlayerItem(client, g_WeaponClasses[index]);
-					if (clip != -1)
-					{
-						SetEntProp(weapon, Prop_Send, "m_iClip1", clip);
-					}
-					if (reserve != -1)
-					{
-						SetEntProp(weapon, Prop_Send, "m_iPrimaryReserveAmmoCount", reserve);
-					}
-					if (offset != -1 && ammo != -1)
-					{
-						DataPack pack;
-						CreateDataTimer(0.1, ReserveAmmoTimer, pack);
-						pack.WriteCell(GetClientUserId(client));
-						pack.WriteCell(offset);
-						pack.WriteCell(ammo);
-					}
+					SetWeaponProps(client, weapon);
 				}
 				else
 				{
+					RemovePlayerItem(client, weapon);
+					AcceptEntityInput(weapon, "KillHierarchy");
 					GivePlayerItem(client, "weapon_knife");
 				}
 				break;

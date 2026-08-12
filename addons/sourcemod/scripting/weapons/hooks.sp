@@ -19,12 +19,35 @@ public void HookPlayer(int client)
 {
 	if(g_bEnableStatTrak)
 		SDKHook(client, SDKHook_OnTakeDamageAlive, OnTakeDamageAlive);
+		
+	SDKHook(client, SDKHook_WeaponEquipPost, OnWeaponEquipPost);
 }
 
 public void UnhookPlayer(int client)
 {
 	if(g_bEnableStatTrak)
 		SDKUnhook(client, SDKHook_OnTakeDamageAlive, OnTakeDamageAlive);
+		
+	SDKUnhook(client, SDKHook_WeaponEquipPost, OnWeaponEquipPost);
+}
+
+public void OnWeaponEquipPost(int client, int weapon)
+{
+	if (IsValidClient(client) && IsValidWeapon(weapon))
+	{
+		if (g_bOverwriteEnabled)
+		{
+			SetWeaponProps(client, weapon);
+		}
+		else
+		{
+			int previousOwner = GetEntPropEnt(weapon, Prop_Send, "m_hPrevOwner");
+			if (previousOwner == -1 || previousOwner == client)
+			{
+				SetWeaponProps(client, weapon);
+			}
+		}
+	}
 }
 
 Action GiveNamedItemPre(int client, char classname[64], CEconItemView &item, bool &ignoredCEconItemView, bool &OriginIsNULL, float Origin[3])
