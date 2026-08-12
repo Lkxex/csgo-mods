@@ -59,6 +59,12 @@ bool IsValidClient(int client)
 	{
 		return false;
 	}
+	
+	if (GetEntProp(client, Prop_Send, "m_bIsControllingBot") == 1)
+	{
+		return false;
+	}
+	
 	return true;
 }
 

@@ -58,6 +58,8 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_gllang", CommandGloveLang);
 	
 	HookEvent("player_spawn", Event_PlayerSpawn, EventHookMode_Pre);
+	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
+	HookEvent("bot_takeover", Event_BotTakeover, EventHookMode_Pre);
 	
 	AddCommandListener(ChatListener, "say");
 	AddCommandListener(ChatListener, "say2");
@@ -175,6 +177,34 @@ public void GivePlayerGloves(int client)
 			
 			SetEntPropEnt(client, Prop_Send, "m_hMyWearables", ent);
 			if(g_iEnableWorldModel) SetEntProp(client, Prop_Send, "m_nBody", 1);
+		}
+	}
+}
+
+public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
+{
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if(IsValidClient(client))
+	{
+		int ent = GetEntPropEnt(client, Prop_Send, "m_hMyWearables");
+		if(ent != -1)
+		{
+			AcceptEntityInput(ent, "KillHierarchy");
+			SetEntPropEnt(client, Prop_Send, "m_hMyWearables", -1);
+		}
+	}
+}
+
+public void Event_BotTakeover(Event event, const char[] name, bool dontBroadcast)
+{
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if(IsValidClient(client))
+	{
+		int ent = GetEntPropEnt(client, Prop_Send, "m_hMyWearables");
+		if(ent != -1)
+		{
+			AcceptEntityInput(ent, "KillHierarchy");
+			SetEntPropEnt(client, Prop_Send, "m_hMyWearables", -1);
 		}
 	}
 }

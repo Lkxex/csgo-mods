@@ -38,12 +38,17 @@ stock void GetRandomSkin(int client, int team, char[] output, int outputSize, in
 
 stock bool IsValidClient(int client)
 {
-	// GetEntProp(client, Prop_Send, "m_bIsControllingBot") != 1
-    if (!(1 <= client <= MaxClients) || !IsClientInGame(client) || IsFakeClient(client) || IsClientSourceTV(client) || IsClientReplay(client))
-    {
-        return false;
-    }
-    return true;
+	if (!(1 <= client <= MaxClients) || !IsClientInGame(client) || IsFakeClient(client) || IsClientSourceTV(client) || IsClientReplay(client))
+	{
+		return false;
+	}
+	
+	if (GetEntProp(client, Prop_Send, "m_bIsControllingBot") == 1)
+	{
+		return false;
+	}
+	
+	return true;
 }
 
 stock void FirstCharUpper(char[] string)

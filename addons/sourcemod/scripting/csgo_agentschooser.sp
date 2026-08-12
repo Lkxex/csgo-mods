@@ -157,6 +157,8 @@ public void OnPluginStart()
 	
 	HookEvent("player_spawn", Event_PlayerSpawn);
 	HookEvent("player_team", OnPlayerTeam, EventHookMode_Post);
+	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
+	HookEvent("bot_takeover", Event_BotTakeover, EventHookMode_Pre);
 	
 	cv_version			= CreateConVar("sm_csgoagents_version",				DATA,	"Agents Chooser - Version.");
 	cv_autoopen			= CreateConVar("sm_csgoagents_autoopen",			"0",	"Agent Chooser - Enable/Disable auto open menu when you connect and you didnt select a agent yet", _, true, 0.0, true, 1.0);
@@ -728,6 +730,24 @@ int AgentChoosed(Menu menu, MenuAction action, any client, int selection)
 		{
 			delete menu;
 		}
+	}
+}
+
+public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
+{
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if(client > 0 && client <= MaxClients && IsClientInGame(client))
+	{
+		SetEntPropString(client, Prop_Send, "m_szArmsModel", "");
+	}
+}
+
+public void Event_BotTakeover(Event event, const char[] name, bool dontBroadcast)
+{
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if(client > 0 && client <= MaxClients && IsClientInGame(client))
+	{
+		SetEntPropString(client, Prop_Send, "m_szArmsModel", "");
 	}
 }
 
