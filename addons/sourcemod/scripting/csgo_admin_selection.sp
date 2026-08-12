@@ -325,13 +325,7 @@ void ApplyAdminFlag(int client)
 {
 	if (!IsClientInGame(client)) return;
 	
-	AdminId admin = GetUserAdmin(client);
-	if (admin == INVALID_ADMIN_ID)
-	{
-		admin = CreateAdmin("AdminSelection");
-		SetUserAdmin(client, admin, true);
-	}
-	SetAdminFlag(admin, Admin_Generic, true);
+	SetUserFlagBits(client, GetUserFlagBits(client) | ADMFLAG_GENERIC);
 }
 
 void RemoveAdminFlag(int client)
@@ -340,11 +334,7 @@ void RemoveAdminFlag(int client)
 	
 	if (!g_bTempAdmins[client] && !g_bPersistentAdmins[client])
 	{
-		AdminId admin = GetUserAdmin(client);
-		if (admin != INVALID_ADMIN_ID)
-		{
-			SetAdminFlag(admin, Admin_Generic, false);
-		}
+		SetUserFlagBits(client, GetUserFlagBits(client) & ~ADMFLAG_GENERIC);
 	}
 }
 
